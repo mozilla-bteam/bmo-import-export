@@ -38,7 +38,24 @@ my $USERS = $JSON->decode(
 my %NEW_USER;
 my %SEEN_GROUP;
 
-my %FILTER = ();
+my %FILTER = (
+    profiles => sub {
+        my $profile = shift;
+        return {
+            userid => $profile->{userid},
+            login_name => $profile->{login_name},
+            realname => $profile->{realname},
+            creation_ts => $profile->{creation_ts},
+            last_seen_date => $profile->{last_seen_date},
+        },
+    },
+    fielddefs => sub {
+        my $row = shift;
+        delete $row->{is_relationship};
+        delete $row->{reverse_relationship_desc};
+        return $row;
+    },
+);
 
 binmode STDOUT, ':encoding(utf8)';
 
@@ -113,6 +130,7 @@ sub export_product {
                         }
                     },
                     children => {
+                        tracking_flags_visibility => sub { get_tracking_flag_visibility($product_id, $_->{id}) },
                         component_cc => sub {
                             return (
                                 ['component_id = ?', $_->{id}],
@@ -154,6 +172,7 @@ sub export_product {
                     }
                 );
             },
+            tracking_flags_visibility => sub { get_tracking_flag_visibility($_->{id}) },
             flaginclusions => sub {
                 return (
                     [ "product_id = ? AND component_id IS NULL", $_->{id} ],
@@ -195,6 +214,7 @@ sub export_table {
     $sth->execute(@bind);
     while (my $row = $sth->fetchrow_hashref) {
         my $digest = Digest::MD5->new;
+        $digest->add($table);
         foreach my $key (sort keys %$row) {
             my $copy = $row->{$key};
             utf8::encode($copy) if $copy;
@@ -250,6 +270,43 @@ sub get_profiles {
 
     return unless @ids;
     return in_selector(userid => @ids);
+}
+
+sub get_tracking_flag_visibility {
+    my ($product_id, $component_id) = @_;
+    my $selector;
+    if (defined $component_id) {
+        $selector = ["product_id = ? AND component_id = ?", $product_id, $component_id];
+    }
+    else {
+        $selector = ["product_id = ?", $product_id];
+    }
+
+    return (
+        $selector,
+        parents => {
+            tracking_flags => sub {
+                return (
+                    ["id = ?", $_->{tracking_flag_id}],
+                    parents => {
+                        fielddefs => sub {
+                            return ["id = ?", $_->{field_id}]
+                        }
+                    },
+                    children => {
+                        tracking_flags_values => sub {
+                            return (
+                                ['tracking_flag_id = ?', $_->{id}],
+                                parents => {
+                                    groups => sub { get_groups($_->{setter_group_id}) },
+                                }
+                            );
+                        }
+                    },
+                )
+            }
+        }
+    );
 }
 
 sub get_flagtypes {
