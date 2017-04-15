@@ -5,6 +5,8 @@ use strict;
 use warnings;
 use lib $ENV{BUGZILLA_DIR}, "$ENV{BUGZILLA_DIR}/lib", "$ENV{BUGZILLA_DIR}/local/lib/perl5";
 
+use File::Spec;
+use File::Basename;
 BEGIN {
     # load the carton dependencies for this checkout in addition to the bugzilla stuff.
     my $dir = dirname(__FILE__);

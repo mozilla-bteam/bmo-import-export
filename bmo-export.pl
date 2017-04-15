@@ -39,6 +39,12 @@ my %FILTER = (
             mfa => undef,
         };
     },
+    fielddefs => sub {
+        my $row = shift;
+        delete $row->{is_relationship};
+        delete $row->{reverse_relationship_desc};
+        return $row;
+    },
 );
 
 binmode STDOUT, ':encoding(utf8)';
@@ -101,7 +107,7 @@ sub export_product {
                                 $_->{initialqacontact},
                                 $_->{initialowner},
                             );
-                            get_profiles(grep { $_ } @user_ids),
+                            get_profiles(@user_ids),
                         },
                     },
                     children => {
@@ -226,7 +232,7 @@ sub get_groups {
         in_selector(id => @groups),
         parents => {
             profiles => sub {
-                get_profiles(grep { defined } $_->{owner_user_id});
+                get_profiles($_->{owner_user_id});
             },
         }
     );
