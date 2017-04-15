@@ -53,13 +53,15 @@ foreach my $key (keys %$params) {
     }
 }
 
-push @system_groups, Bugzilla::Group->check({name => "query_database"});
-push @system_groups, Bugzilla::Group->check({name => "admin"});
+push @system_groups, Bugzilla::Group->check({name => "query_database"})->id;
+push @system_groups, Bugzilla::Group->check({name => "admin"})->id;
 
 export_table(profiles => ["userid = ?", 1]);
 export_table(groups => get_groups(@system_groups));
 export_product("Bugzilla");
 export_product("Core");
+export_product("Firefox");
+export_product("Thunderbird");
 export_product("bugzilla.mozilla.org");
 export_table(keyworddefs => ["is_active"]);
 export_table(priority => ["isactive"]);
@@ -70,10 +72,15 @@ export_item({TYPE => 'params', params => $params});
 
 my @seen_groups = keys %SEEN_GROUP;
 export_table(
-    group_group_map => and_selector(
+    group_group_map => or_selector(
         in_selector( member_id  => @seen_groups ),
         in_selector( grantor_id => @seen_groups )
-    )
+    ),
+    parents => {
+        groups => sub {
+            get_groups($_->{member_id}, $_->{grantor_id}),
+        },
+    },
 );
 
 sub export_product {
@@ -287,7 +294,7 @@ sub new_user {
         $row = { userid => $new_id, login_name => $user->login };
     }
     else {
-        $row = pop @$USERS;
+        $row = pop @$USERS or die "no more random users!";
         $row->{userid} = $new_id;
         my ($nick, $other) = split(/\s+/, delete $row->{nick});
         if ($row->{realname} =~ /^(\w)\w+\s+(?:\w\.\s+)?(\w+)$/) {
@@ -315,6 +322,16 @@ sub new_user {
     $_[0] = $cache->{$id} = $new_id;
     return $cache->{$id};
 }
+
+
+sub or_selector {
+    my (@sels) = @_;
+    return [ 
+        join(' OR ', map { shift @$_ } @sels),
+        map { @$_ } @sels
+    ]
+}
+
 
 sub and_selector {
     my (@sels) = @_;
