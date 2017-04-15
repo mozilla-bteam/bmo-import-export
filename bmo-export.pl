@@ -38,23 +38,7 @@ my $USERS = $JSON->decode(
 my %NEW_USER;
 my %SEEN_GROUP;
 
-my %FILTER = (
-    profiles => sub {
-        my $profile = shift;
-        return {
-            %$profile,
-            public_key    => '',
-            cryptpassword => '*',
-            mfa => undef,
-        };
-    },
-    fielddefs => sub {
-        my $row = shift;
-        delete $row->{is_relationship};
-        delete $row->{reverse_relationship_desc};
-        return $row;
-    },
-);
+my %FILTER = ();
 
 binmode STDOUT, ':encoding(utf8)';
 
