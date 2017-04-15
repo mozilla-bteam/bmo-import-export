@@ -69,7 +69,9 @@ foreach my $key (keys %$params) {
     }
 }
 
-export_item({TYPE => 'params', params => $params});
+push @system_groups, Bugzilla::Group->check({name => "query_database"});
+push @system_groups, Bugzilla::Group->check({name => "admin"});
+
 export_table(profiles => ["userid = ?", 1]);
 export_table(groups => get_groups(@system_groups));
 export_product("Bugzilla");
@@ -79,6 +81,7 @@ export_table(keyworddefs => ["is_active"]);
 export_table(priority => ["isactive"]);
 export_table(op_sys => ["isactive"]);
 export_table(setting => ["1"]);
+export_item({TYPE => 'params', params => $params});
 #export_table(fielddefs => ["custom and type != 99"]);
 
 my @seen_groups = keys %SEEN_GROUP;
@@ -272,6 +275,8 @@ sub get_flagtypes {
             groups => sub {
                 get_groups($_->{grant_group_id}, $_->{request_group_id});
             },
+        },
+        children => {
             flagtype_comments => sub { ["type_id = ?", $type_id] },
         },
     )
@@ -279,7 +284,7 @@ sub get_flagtypes {
 
 sub new_user {
     my ($id, $role) = @_;
-    state $next_id = 2; # id 1 is always nobody
+    state $next_id = 1000; # first 999 ids are not used.
     state $cache = {};
 
     return unless $id;
@@ -295,10 +300,11 @@ sub new_user {
 
     my $row;
     if ($user->login =~ /\.bugs$/) {
-        $row = { login_name => $user->login };
+        $row = { userid => $new_id, login_name => $user->login };
     }
     else {
         $row = pop @$USERS;
+        $row->{userid} = $new_id;
         my ($nick, $other) = split(/\s+/, delete $row->{nick});
         if ($row->{realname} =~ /^(\w)\w+\s+(?:\w\.\s+)?(\w+)$/) {
             state $seen = {};

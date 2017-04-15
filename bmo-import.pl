@@ -30,6 +30,17 @@ my $sa = SQL::Abstract->new;
 my $dbh = Bugzilla->dbh;
 
 $dbh->bz_start_transaction();
+
+$dbh->do(q{DELETE FROM components WHERE id = 1});
+$dbh->do(q{DELETE FROM products WHERE id = 1});
+$dbh->do(q{DELETE FROM profiles WHERE userid = 2});
+$dbh->do(q{DELETE FROM rep_platform});
+$dbh->do(q{DELETE FROM op_sys});
+$dbh->do(q{DELETE FROM priority});
+$dbh->do(q{DELETE FROM setting});
+$dbh->do(q{UPDATE profiles SET userid = 2 WHERE login_name != 'nobody@mozilla.org' AND userid = 1});
+$dbh->do(q{DELETE FROM groups});
+
 while (my $line = <STDIN>) {
     my $item = $JSON->decode($line);
     my $type = delete $item->{TYPE};
@@ -37,6 +48,7 @@ while (my $line = <STDIN>) {
         my ($table) = keys %$item;
         my $row = $item->{$table};
         my ($sql, @bind) = $sa->insert($table, $row);
+	$dbh->do($sql, undef, @bind);
     }
 }
 $dbh->bz_commit_transaction();
