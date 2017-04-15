@@ -3,8 +3,9 @@ use 5.10.1;
 use strict;
 use warnings;
 
+use File::Basename;
+use File::Spec;
 use lib $ENV{BUGZILLA_DIR}, "$ENV{BUGZILLA_DIR}/lib", "$ENV{BUGZILLA_DIR}/local/lib/perl5";
-
 BEGIN {
     # load the carton dependencies for this checkout in addition to the bugzilla stuff.
     my $dir = dirname(__FILE__);
@@ -60,7 +61,6 @@ export_product("bugzilla.mozilla.org");
 export_table(keyworddefs => ["is_active"]);
 export_table(priority => ["isactive"]);
 export_table(op_sys => ["isactive"]);
-export_table(rep_platform => ["isactive"]);
 export_table(setting => ["1"]);
 export_table(fielddefs => ["custom and type != 99"]);
 
@@ -80,6 +80,8 @@ sub export_product {
         products => ["name = ?", $name],
         parents => {
             classifications => sub { [ "id = ?", $_->{classification_id} ] },
+            rep_platform => sub { [ "id = ?", $_->{default_platform_id} ] },
+            op_sys => sub { [ "id = ?", $_->{default_op_sys_id} ] },
             groups => sub { 
                 get_groups( $_->{security_group_id} );
             },
@@ -92,7 +94,15 @@ sub export_product {
                 return (
                     [ "product_id = ? AND isactive", $product_id ],
                     parents => {
-                        profiles => sub { get_profiles(grep { defined } $_->{triage_owner_id}, $_->{watch_user}) },
+                        profiles => sub { 
+                            my @user_ids = (
+                                $_->{triage_owner_id},
+                                $_->{watch_user},
+                                $_->{initialqacontact},
+                                $_->{initialowner},
+                            );
+                            get_profiles(grep { $_ } @user_ids),
+                        },
                     },
                     children => {
                         component_cc => sub {
