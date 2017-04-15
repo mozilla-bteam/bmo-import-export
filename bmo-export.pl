@@ -27,6 +27,15 @@ if ($ENV{PRETTY}) {
     $JSON->pretty(1);
 }
 
+my $USERS = $JSON->decode(
+    do {
+        local $/ = undef;
+        open my $fh, '<', "profiles.json";
+        scalar <$fh>;
+    }
+);
+
+my %NEW_USER;
 my %SEEN_GROUP;
 
 my %FILTER = (
@@ -61,14 +70,16 @@ foreach my $key (keys %$params) {
 }
 
 export_item({TYPE => 'params', params => $params});
+export_table(profiles => ["userid = ?", 1]);
 export_table(groups => get_groups(@system_groups));
 export_product("Bugzilla");
+export_product("Core");
 export_product("bugzilla.mozilla.org");
 export_table(keyworddefs => ["is_active"]);
 export_table(priority => ["isactive"]);
 export_table(op_sys => ["isactive"]);
 export_table(setting => ["1"]);
-export_table(fielddefs => ["custom and type != 99"]);
+#export_table(fielddefs => ["custom and type != 99"]);
 
 my @seen_groups = keys %SEEN_GROUP;
 export_table(
@@ -77,7 +88,6 @@ export_table(
         in_selector( grantor_id => @seen_groups )
     )
 );
-
 
 sub export_product {
     my ($name) = @_;
@@ -101,21 +111,22 @@ sub export_product {
                     [ "product_id = ? AND isactive", $product_id ],
                     parents => {
                         profiles => sub { 
-                            my @user_ids = (
-                                $_->{triage_owner_id},
-                                $_->{watch_user},
-                                $_->{initialqacontact},
-                                $_->{initialowner},
-                            );
-                            get_profiles(@user_ids),
-                        },
+                            new_user($_->{triage_owner_id}, 'triage');
+                            new_user($_->{watch_user}, 'watch');
+                            new_user($_->{initialqacontact}, 'qa');
+                            new_user($_->{initialowner}, 'owner');
+                            return;
+                        }
                     },
                     children => {
                         component_cc => sub {
                             return (
                                 ['component_id = ?', $_->{id}],
                                 parents => {
-                                    profiles => sub { [ 'userid = ?', $_->{user_id} ] },
+                                    profiles => sub {
+                                        new_user($_->{user_id}, 'cc');
+                                        return;
+                                    },
                                 },
                             )
                         },
@@ -123,7 +134,10 @@ sub export_product {
                             return (
                                 ['component_id = ?', $_->{id}],
                                 parents => {
-                                    profiles => sub { [ 'userid = ?', $_->{user_id} ] },
+                                    profiles => sub {
+                                        new_user($_->{user_id}, 'reviewer');
+                                        return;
+                                    },
                                 },
                             )
                         },
@@ -180,7 +194,6 @@ sub export_table {
     my ($where, @bind) = @$selector;
     my $parents = $param{parents};
     my $children = $param{children};
-    my $filter   = $param{filter};
     state $exported = {};
     state $undef    = \1;
 
@@ -232,7 +245,7 @@ sub get_groups {
         in_selector(id => @groups),
         parents => {
             profiles => sub {
-                get_profiles($_->{owner_user_id});
+                new_user($_->{owner_user_id}, 'group owner');
             },
         }
     );
@@ -253,7 +266,8 @@ sub get_flagtypes {
         parents => {
             profiles => sub {
                 return unless $_->{default_requestee};
-                return [ "userid = ?", $_->{default_requestee} ];
+                new_user($_->{default_requestee}, 'flag');
+                return;
             },
             groups => sub {
                 get_groups($_->{grant_group_id}, $_->{request_group_id});
@@ -261,6 +275,55 @@ sub get_flagtypes {
             flagtype_comments => sub { ["type_id = ?", $type_id] },
         },
     )
+}
+
+sub new_user {
+    my ($id, $role) = @_;
+    state $next_id = 2; # id 1 is always nobody
+    state $cache = {};
+
+    return unless $id;
+    return 1 if $id == 1;
+
+    my $user = Bugzilla::User->check({ id => $id });
+    if ($cache->{$id}) {
+        $_[0] = $cache->{$id};
+        $NEW_USER{ $cache->{$id} }{role}{ $role }++;
+        return $_[0];
+    }
+    my $new_id = $next_id++;
+
+    my $row;
+    if ($user->login =~ /\.bugs$/) {
+        $row = { login_name => $user->login };
+    }
+    else {
+        $row = pop @$USERS;
+        my ($nick, $other) = split(/\s+/, delete $row->{nick});
+        if ($row->{realname} =~ /^(\w)\w+\s+(?:\w\.\s+)?(\w+)$/) {
+            state $seen = {};
+            my (undef, $host) = split(/@/, $row->{login_name}, 2);
+            my $name = "$1$2";
+            unless ($seen->{"$name\@$host"}++) {
+                $row->{login_name} = "$name\@$host";
+            }
+            else {
+                die "dupe: $name\n";
+            }
+        }
+        else {
+            die "real name: $row->{realname}";
+        }
+        $row->{login_name} = lc $row->{login_name};
+        $row->{realname} .= " [:$nick]";
+        if (@$USERS % 2) {
+            $row->{realname} .= " ($other)";
+        }
+    }
+    export_item({TYPE => 'table', profiles => $row});
+
+    $_[0] = $cache->{$id} = $new_id;
+    return $cache->{$id};
 }
 
 sub and_selector {
